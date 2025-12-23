@@ -19,12 +19,13 @@ def create_mod_launch_command(folder_path, mods, local_save_dir=True):
     mods_paths = [os.path.join(folder_path, mod) for mod in mods]
     mods_paths_str = ""
     for mp in mods_paths:
-        mods_paths_str += mp.replace(" ", "\ ") + " "
+        mods_paths_str += mp.replace(" ", "\\ ") + " "
     
     # Make launch command
-    launch_command_prefix = "/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=gzdoom.sh org.zdoom.GZDoom "
+    launch_command_prefix = "/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=gzdoom.sh org.zdoom.GZDoom \
+    -file "
     if local_save_dir:
-        folder_path_str = folder_path.replace(" ", "\ ")
+        folder_path_str = folder_path.replace(" ", "\\ ")
         launch_command_suffix = f"-savedir {folder_path_str}/save"
     else:
         launch_command_suffix = " $@"
@@ -113,7 +114,9 @@ class ModsListGUI():
         self.title = tk.Label(self.window, text=f"Mods folder: {mods_folder}", bg="light gray", fg="black")
         self.title.pack()
         # Create list box
-        self.listbox = tk.Listbox(self.window, selectmode=tk.SINGLE, height = 20, width = 50, bg="light gray") 
+        self.listbox = tk.Listbox(self.window, selectmode=tk.SINGLE, 
+                                    height = 20, width = 50, bg="light gray",
+                                    exportselection=False, activestyle="none") 
         # Create scroll bar
         scrollbar = ttk.Scrollbar(
             self.window,
@@ -185,7 +188,7 @@ class ModsListGUI():
 
 def main():
 
-    mods_folder = "/home/deck/otter/doom/pwads"
+    mods_folder = "~/games/doom/pwads"
     local_save_dir = True   # If True save files are stored separately inside each mod folder
     debug_mode = False      # If True prints some debug information to the console
 
