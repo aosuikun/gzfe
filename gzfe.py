@@ -188,7 +188,7 @@ class ModsListGUI():
 
 def main():
 
-    mods_folder = "~/games/doom/pwads"
+    mods_folder = "/home/deck/games/doom/pwads"
     local_save_dir = True   # If True save files are stored separately inside each mod folder
     debug_mode = False      # If True prints some debug information to the console
 
