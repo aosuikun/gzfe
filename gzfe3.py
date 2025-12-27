@@ -1,6 +1,10 @@
 import pygame
 import sys, os, subprocess, json
-from gzfe import get_folders_in_path, get_mods_in_path, load_mods_info
+from utils import get_folders_in_path, get_mods_in_path, load_mods_info
+
+
+# TODO: Organize this
+# TODO: hold down or up is a bit buggy
 
 pygame.init()
 pygame.joystick.init()
@@ -8,14 +12,13 @@ pygame.joystick.init()
 # ---------- Setup ----------
 WIDTH, HEIGHT = 1280, 800
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Scrollable Two Column UI")
+pygame.display.set_caption("gzfe")
 
 # Holding up/down settings
 NAV_REPEAT_DELAY = 100   # ms before repeat starts
-NAV_REPEAT_RATE = 20    # ms between repeats
+NAV_REPEAT_RATE = 5    # ms between repeats
 
 # UI highlight
-ROW_BG_NORMAL = (30, 30, 30)
 ROW_BG_SELECTED = (70, 70, 70)
 ROW_BG_FOCUSED = (90, 90, 90)  # optional: active column
 
@@ -77,13 +80,28 @@ def clamp_scroll():
         scroll_offset = selected_row - VISIBLE_ROWS + 1
 
 def handle_action(row, col):
+    global config
     if col == 0:
-        print(f"Column: Fruit | Value: {items[row]}")
+        print(f"Column: Mod | Value: {items[row]}")
         run_mod(items[row])
     else:
-        favorites[row] +=1
-        favorites[row] %= 3
-        print(f"Column: Favorite | Value: {favorites[row]}")
+        rating = mods_info[items[row]]["rating"]
+        if rating == 'unrated':
+            rating = 'silver'
+        elif rating == 'silver':
+            rating = 'gold'
+        else:
+            rating = 'unrated'
+        
+        mods_info[items[row]]["rating"]= rating
+        mod_name = mods_info[items[row]]['name']
+
+        if mod_name in config["mods"].keys():
+            config["mods"][mod_name]["rating"] = rating
+        else:
+            config["mods"][mod_name] = {"rating": rating}
+
+        print(f"Column: Rating | Value: {rating}")
 
 def run_mod(mod_selected):
     global running
@@ -93,6 +111,8 @@ def run_mod(mod_selected):
 
     # save selected mod as last run so it can be retrieved next time
     config["last_run"] = mod_selected
+
+    # Save config
     save_config(config, config_file_path)
     
     # run mod
@@ -102,11 +122,11 @@ def run_mod(mod_selected):
     print(f"DEBUG LOG - Mod selected: {mod_selected}")
     print(f"DEBUG LOG - Run command: {launch_command}")
 
-    # kill GUI
+    # Stop python GUI made from this script
     running = False
 
 # Getting Doom mods data
-mods_folder = "/home/deck/games/doom/pwads_test"
+mods_folder = "/home/deck/games/doom/pwads"
 mods_info = load_mods_info(mods_folder, True)
 mods_names = list(mods_info.keys())
 mods_names.sort(key=lambda y: y.lower())
@@ -127,13 +147,16 @@ else:
 selected_col = 0
 
 def load_mod_ratings():
-    global mods_info, config
+    global mods_info, config, mods_names
     for mod in config["mods"]:
-        mod_name = mod["mod_name"]
-        if mod_name in mod_names:
-            mods_info[mod_name]["rating"] = mod["rating"]
+        mod_name = mod
+        if mod_name in mods_names:
+            mods_info[mod_name]["rating"] = config["mods"][mod_name]["rating"]
 
-favorites = [False] * len(items)
+
+load_mod_ratings()
+
+# favorites = [False] * len(items)
 
 
 held_dir = None          # "up" or "down"
@@ -250,9 +273,14 @@ while running:
 
 
         # Caco column
-        if favorites[i] == 0:
+        if 'rating' not in mods_info[items[i]].keys():
+            mods_info[items[i]]['rating'] = 'unrated'
+
+        rating = mods_info[items[i]]['rating']
+        
+        if rating == 'unrated':
             icon = caco_outline
-        elif favorites[i] == 1:
+        elif rating == 'silver':
             icon = caco_silver
         else:
             icon = caco_gold
@@ -268,5 +296,6 @@ while running:
     pygame.display.flip()
     CLOCK.tick(60)
 
+save_config(config, config_file_path)
 pygame.quit()
 sys.exit()
