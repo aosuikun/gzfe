@@ -7,6 +7,8 @@ from mods import save_config, DoomMods
 current_folder = os.path.dirname(__file__)
 CONFIG_PATH = os.path.join(current_folder,"doom_mods_config.json")
 MODS_FOLDER = "/home/deck/games/doom/pwads"
+print(f"{MODS_FOLDER = }")
+print(f"{CONFIG_PATH = }")
 
 # --- Setup pygame ---
 # Init
@@ -229,6 +231,6 @@ while running:
     pygame.display.flip()
     CLOCK.tick(60)
 
-save_config(config, CONFIG_PATH)
+save_config(doom_mods.config, CONFIG_PATH)
 pygame.quit()
 sys.exit()
