@@ -25,17 +25,17 @@ ROW_BG_FOCUSED = (90, 90, 90)  # optional: active column
 # Cacodemon favorites icon
 ICON_SIZE = 24
 
-caco_outline = pygame.image.load("cacodemon_outline.png").convert_alpha()
-caco_silver = pygame.image.load("cacodemon_silver.png").convert_alpha()
-caco_gold = pygame.image.load("cacodemon_golden.png").convert_alpha()
+caco_outline_img = pygame.image.load("cacodemon_outline.png").convert_alpha()
+caco_silver_img = pygame.image.load("cacodemon_silver.png").convert_alpha()
+caco_gold_img = pygame.image.load("cacodemon_golden.png").convert_alpha()
 
-caco_outline = pygame.transform.smoothscale(caco_outline, (ICON_SIZE, ICON_SIZE))
-caco_silver = pygame.transform.smoothscale(caco_silver, (ICON_SIZE, ICON_SIZE))
-caco_gold = pygame.transform.smoothscale(caco_gold, (ICON_SIZE, ICON_SIZE))
+caco_outline_img = pygame.transform.smoothscale(caco_outline_img, (ICON_SIZE, ICON_SIZE))
+caco_silver_img = pygame.transform.smoothscale(caco_silver_img, (ICON_SIZE, ICON_SIZE))
+caco_gold_img = pygame.transform.smoothscale(caco_gold_img, (ICON_SIZE, ICON_SIZE))
 
 
 # Font
-FONT = pygame.font.Font("font/ttf/Hack-Regular.ttf", 24)
+font = pygame.font.Font("font/ttf/Hack-Regular.ttf", 24)
 
 # Pygame settings
 CLOCK = pygame.time.Clock()
@@ -54,8 +54,7 @@ TOP_MARGIN = 25
 scroll_offset = 0
 
 # Functions
-def load_defaults(mod_names):
-    # mods = [{"mod_name":mod_name, "rating": "unrated"} for mod_name in mod_names]
+def load_default_config(mod_names):
     config = {"last_run": None, "mods": {}}
     return config
 
@@ -65,7 +64,7 @@ def load_config(path, mod_names):
             return json.load(f)
     except:
         # Create defaults and return
-        config = load_defaults(mod_names)
+        config = load_default_config(mod_names)
         return config
 
 def save_config(config, path):
@@ -79,35 +78,36 @@ def clamp_scroll():
     elif selected_row >= scroll_offset + VISIBLE_ROWS:
         scroll_offset = selected_row - VISIBLE_ROWS + 1
 
-def handle_action(row, col):
-    global config
-    if col == 0:
-        print(f"Column: Mod | Value: {items[row]}")
-        run_mod(items[row])
+def update_rating(row):
+    global config, mods_dict
+    rating = mods_dict[mods_list[row]]["rating"]
+    if rating == 'unrated':
+        rating = 'silver'
+    elif rating == 'silver':
+        rating = 'gold'
     else:
-        rating = mods_info[items[row]]["rating"]
-        if rating == 'unrated':
-            rating = 'silver'
-        elif rating == 'silver':
-            rating = 'gold'
-        else:
-            rating = 'unrated'
-        
-        mods_info[items[row]]["rating"]= rating
-        mod_name = mods_info[items[row]]['name']
+        rating = 'unrated'
+    
+    mods_dict[mods_list[row]]["rating"]= rating
+    mod_name = mods_dict[mods_list[row]]['name']
 
-        if mod_name in config["mods"].keys():
-            config["mods"][mod_name]["rating"] = rating
-        else:
-            config["mods"][mod_name] = {"rating": rating}
+    if mod_name in config["mods"].keys():
+        config["mods"][mod_name]["rating"] = rating
+    else:
+        config["mods"][mod_name] = {"rating": rating}
 
-        print(f"Column: Rating | Value: {rating}")
+
+def handle_action(row, col):
+    if col == 0:
+        run_mod(mods_list[row])
+    else:
+        update_rating(row=row)
 
 def run_mod(mod_selected):
     global running
     global config
     # get mod launch command:
-    launch_command = mods_info[mod_selected]["launch_command"]
+    launch_command = mods_dict[mod_selected]["launch_command"]
 
     # save selected mod as last run so it can be retrieved next time
     config["last_run"] = mod_selected
@@ -127,37 +127,33 @@ def run_mod(mod_selected):
 
 # Getting Doom mods data
 mods_folder = "/home/deck/games/doom/pwads"
-mods_info = load_mods_info(mods_folder, True)
-mods_names = list(mods_info.keys())
-mods_names.sort(key=lambda y: y.lower())
-
-items = mods_names
+mods_dict = load_mods_info(mods_folder, True)
+mods_list = list(mods_dict.keys())
+mods_list.sort(key=lambda y: y.lower())
 
 # Initial setup
-
 config_file_path = "gzfe.json"
-config = load_config(config_file_path, mods_names)
+config = load_config(config_file_path, mods_list)
 # Selected row and columns counter
 last_run = config["last_run"]
-if last_run in mods_names:
-    selected_row = mods_names.index(last_run)
+
+
+if last_run in mods_list:
+    selected_row = mods_list.index(last_run)
 else:
     selected_row = 0
 
 selected_col = 0
 
 def load_mod_ratings():
-    global mods_info, config, mods_names
+    global mods_dict, config, mods_list
     for mod in config["mods"]:
         mod_name = mod
-        if mod_name in mods_names:
-            mods_info[mod_name]["rating"] = config["mods"][mod_name]["rating"]
+        if mod_name in mods_list:
+            mods_dict[mod_name]["rating"] = config["mods"][mod_name]["rating"]
 
 
 load_mod_ratings()
-
-# favorites = [False] * len(items)
-
 
 held_dir = None          # "up" or "down"
 last_nav_time = 0
@@ -181,7 +177,7 @@ while running:
             elif event.key == pygame.K_DOWN:
                 held_dir = "down"
                 last_nav_time = pygame.time.get_ticks()
-                selected_row = min(len(items) - 1, selected_row + 1)
+                selected_row = min(len(mods_list) - 1, selected_row + 1)
                 clamp_scroll()
             elif event.key == pygame.K_LEFT:
                 selected_col = 0
@@ -202,9 +198,9 @@ while running:
             if hat_y == 1:
                 selected_row = max(0, selected_row - 1)
             elif hat_y == -1:
-                selected_row = min(len(items) - 1, selected_row + 1)
+                selected_row = min(len(mods_list) - 1, selected_row + 1)
             elif event.button == 5:  # R bumper
-                selected_row = min(len(items) - 1, selected_row + PAGE_JUMP)
+                selected_row = min(len(mods_list) - 1, selected_row + PAGE_JUMP)
                 clamp_scroll()
             elif event.button == 4:  # L bumper
                 selected_row = max(0, selected_row - PAGE_JUMP)
@@ -227,7 +223,7 @@ while running:
             if held_dir == "up":
                 selected_row = max(0, selected_row - 1)
             elif held_dir == "down":
-                selected_row = min(len(items) - 1, selected_row + 1)
+                selected_row = min(len(mods_list) - 1, selected_row + 1)
 
             clamp_scroll()
             last_nav_time = now
@@ -237,7 +233,7 @@ while running:
             if held_hat_y == 1:
                 selected_row = max(0, selected_row - 1)
             elif held_hat_y == -1:
-                selected_row = min(len(items) - 1, selected_row + 1)
+                selected_row = min(len(mods_list) - 1, selected_row + 1)
 
             clamp_scroll()
             last_nav_time = now
@@ -246,7 +242,7 @@ while running:
     screen.fill((30, 30, 30))
 
     start = scroll_offset
-    end = min(scroll_offset + VISIBLE_ROWS, len(items))
+    end = min(scroll_offset + VISIBLE_ROWS, len(mods_list))
 
     for i in range(start, end):
         draw_y = TOP_MARGIN + (i - scroll_offset) * ROW_HEIGHT
@@ -268,22 +264,22 @@ while running:
     )
 
         # --- Fruit text ---
-        fruit_surf = FONT.render(items[i], True, (255, 255, 255))
+        fruit_surf = font.render(mods_list[i], True, (255, 255, 255))
         screen.blit(fruit_surf, (COL_X[0], draw_y - 5))
 
 
         # Caco column
-        if 'rating' not in mods_info[items[i]].keys():
-            mods_info[items[i]]['rating'] = 'unrated'
+        if 'rating' not in mods_dict[mods_list[i]].keys():
+            mods_dict[mods_list[i]]['rating'] = 'unrated'
 
-        rating = mods_info[items[i]]['rating']
+        rating = mods_dict[mods_list[i]]['rating']
         
         if rating == 'unrated':
-            icon = caco_outline
+            icon = caco_outline_img
         elif rating == 'silver':
-            icon = caco_silver
+            icon = caco_silver_img
         else:
-            icon = caco_gold
+            icon = caco_gold_img
 
         icon_rect = icon.get_rect()
         icon_rect.center = (

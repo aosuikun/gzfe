@@ -1,203 +1,234 @@
-import os, subprocess, json
-import tkinter as tk
-from tkinter import ttk
+import pygame
+import sys, os
+from mods import save_config, DoomMods
 
-def get_folders_in_path(path):
-    contents = os.listdir(path)     # List all files and directories
-    folder_names = [c for c in contents if os.path.isdir(os.path.join(path, c))]  # Filter to only get folder names
-    folder_paths = [os.path.join(path, fn) for fn in folder_names]  # Make full folder paths
-    return folder_names, folder_paths
+# --- Paths ---
+# TODO: Make this configurable from the GUI
+current_folder = os.path.dirname(__file__)
+CONFIG_PATH = os.path.join(current_folder,"doom_mods_config.json")
+MODS_FOLDER = "/home/deck/games/doom/pwads"
 
-def get_mods_in_path(path):
-    # Get all mods inside path (Supported extensions: .WAD, .wad and .pk3)
-    contents = os.listdir(path)
-    mods = [file for file in contents if file[-4:] == ".wad" or file[-4:] == ".WAD" or file[-4:] == ".pk3"]
-    return mods
+# --- Setup pygame ---
+# Init
+pygame.init()
 
-def create_mod_launch_command(folder_path, mods, local_save_dir=True):
-    # Prepare mod information for launch command
-    mods_paths = [os.path.join(folder_path, mod) for mod in mods]
-    mods_paths_str = ""
-    for mp in mods_paths:
-        mods_paths_str += mp.replace(" ", "\\ ") + " "
-    
-    # Make launch command
-    launch_command_prefix = "/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=gzdoom.sh org.zdoom.GZDoom \
-    -file "
-    if local_save_dir:
-        folder_path_str = folder_path.replace(" ", "\\ ")
-        launch_command_suffix = f"-savedir {folder_path_str}/save"
+# Window
+WIDTH, HEIGHT = 1280, 800
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("gzfe")
+# UI / Layout
+BACKGROUND_COLOR = (50, 50, 50)
+SELECTED_ROW_HIGHLIGHT = (70, 70, 70)
+SELECTED_COLUMN_HIGHLIGHT = (90, 90, 90)
+COL_X = [100, 1000]
+ROW_HEIGHT = 30
+VISIBLE_ROWS = 25
+TOP_MARGIN = 25
+scroll_offset = 0
+
+# Joystick
+pygame.joystick.init()
+joystick = None
+if pygame.joystick.get_count() > 0:
+    joystick = pygame.joystick.Joystick(0)
+    joystick.init()
+
+# Timing
+CLOCK = pygame.time.Clock()
+
+
+# --- Settings ---
+# Hold up/down timing
+NAV_REPEAT_DELAY = 300   # ms before repeat starts
+NAV_REPEAT_RATE = 30    # ms between repeats
+
+# --- Graphs / Font ---
+# Cacodemon ratings
+ICON_SIZE = 24
+
+caco_unrated_img = pygame.image.load("cacodemon_outline.png").convert_alpha()
+caco_silver_img = pygame.image.load("cacodemon_silver.png").convert_alpha()
+caco_gold_img = pygame.image.load("cacodemon_golden.png").convert_alpha()
+caco_bad_img = pygame.image.load("cacodemon_bad.png").convert_alpha()
+
+caco_unrated_img = pygame.transform.smoothscale(caco_unrated_img, (ICON_SIZE, ICON_SIZE))
+caco_silver_img = pygame.transform.smoothscale(caco_silver_img, (ICON_SIZE, ICON_SIZE))
+caco_gold_img = pygame.transform.smoothscale(caco_gold_img, (ICON_SIZE, ICON_SIZE))
+caco_bad_img = pygame.transform.smoothscale(caco_bad_img, (ICON_SIZE, ICON_SIZE))
+
+# Font
+font = pygame.font.Font("font/ttf/Hack-Regular.ttf", 24)
+
+# --- Load mods ---
+doom_mods = DoomMods(mods_folder=MODS_FOLDER, config_path=CONFIG_PATH)
+
+# --- Start index from last run mod ---
+selected_row = doom_mods.last_run_index
+scroll_offset = selected_row - VISIBLE_ROWS + 1
+if scroll_offset < 0: scroll_offset = 0
+
+# --- Hold up/down variables ---
+selected_col = 0
+held_dir = None          # "up" or "down"
+hold_key_time = 0
+hold_key_last_scroll_time = 0
+held_hat_y = 0
+
+
+def clamp_scroll():
+    global scroll_offset
+    if selected_row < scroll_offset:
+        scroll_offset = selected_row
+    elif selected_row >= scroll_offset + VISIBLE_ROWS:
+        scroll_offset = selected_row - VISIBLE_ROWS + 1
+
+
+def handle_button_press(row, col):
+    global running
+    if col == 0:
+        doom_mods.run_mod(mod = doom_mods.mods_list[row])
+        running = False # Stop running GUI after launching mod
+    elif col == 1:
+        doom_mods.update_mod_rating(index=row)
     else:
-        launch_command_suffix = " $@"
+        print("WARNING: There should not be more than 2 columns...")
 
-    launch_command = launch_command_prefix + mods_paths_str + launch_command_suffix
 
-    return launch_command
-
-def load_mods_info(mods_folder, local_save_dir):
-    # Locate folders inside mods_folder
-    folder_names, folder_paths = get_folders_in_path(mods_folder)
-
-    # Create mods dictionary
-    mods_info = dict() # mods information is stored here
-
-    # For each mod folder found, create the relevant information for that mod
-    for i, folder_path in enumerate(folder_paths):
-    
-        mods = get_mods_in_path(folder_path)
-
-        # Skip if no mods were found in the folder
-        if not mods:
-            print(f"WARNING: No mods found in {folder_path}")
-            continue
+# --- GUI main loop ---
+running = True
+number_of_mods = len(doom_mods.mods_list)
+while running:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
         
-        # Create launch command for the mods found
-        launch_command = create_mod_launch_command(folder_path, mods, local_save_dir)
+        # --- Handle keyboard keys ---
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_UP:
+                held_dir = "up"
+                hold_key_time = pygame.time.get_ticks()
+                hold_key_last_scroll_time = hold_key_time
+                selected_row = max(0, selected_row - 1)
+                clamp_scroll()
+            elif event.key == pygame.K_DOWN:
+                held_dir = "down"
+                hold_key_time = pygame.time.get_ticks()
+                hold_key_last_scroll_time = hold_key_time
+                selected_row = min(number_of_mods - 1, selected_row + 1)
+                clamp_scroll()
+            elif event.key == pygame.K_LEFT:
+                selected_col = 0
+            elif event.key == pygame.K_RIGHT:
+                selected_col = 1
+            elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                handle_button_press(selected_row, selected_col)
+            clamp_scroll()
 
-        # Adding info to mods dictionary
-        mods_info[folder_names[i]] = \
-        {
-        "path": folder_path,
-        "name": folder_names[i],
-        "mod_names": mods,
-        "launch_command": launch_command
-        }
+        elif event.type == pygame.KEYUP:
+            if event.key in (pygame.K_UP, pygame.K_DOWN):
+                held_dir = None
 
-    return mods_info
+        # --- Handle Controller keys ---
+        # TODO: test if this is actually working...
+        if event.type == pygame.JOYHATMOTION:
+            hat_x, hat_y = event.value
+            held_hat_y = hat_y
+            if hat_y == 1:
+                selected_row = max(0, selected_row - 1)
+            elif hat_y == -1:
+                selected_row = min(number_of_mods - 1, selected_row + 1)
+            elif event.button == 5:  # R bumper
+                selected_row = min(number_of_mods - 1, selected_row + PAGE_JUMP)
+                clamp_scroll()
+            elif event.button == 4:  # L bumper
+                selected_row = max(0, selected_row - PAGE_JUMP)
+                clamp_scroll()
+            
+            if hat_x == -1:
+                selected_col = 0
+            elif hat_x == 1:
+                selected_col = 1
+            clamp_scroll()
 
-def load_defaults():
-    config = {"last_run": None}
-    return config
+        if event.type == pygame.JOYBUTTONDOWN:
+            if event.button == 0:
+                handle_button_press(selected_row, selected_col)
 
-def load_config(path):
-    try:
-        with open(path, "r") as f:
-            return json.load(f)
-    except:
-        # Create defaults and return
-        config = load_defaults()
-        return config
+    # Hold down up or down buttons behavior
+    now = pygame.time.get_ticks()
+    if held_dir and now - hold_key_time >= NAV_REPEAT_DELAY:
+        if now - hold_key_last_scroll_time >= NAV_REPEAT_RATE:
+            if held_dir == "up":
+                selected_row = max(0, selected_row - 1)
+            elif held_dir == "down":
+                selected_row = min(number_of_mods - 1, selected_row + 1)
 
-def save_config(config, path):
-    with open(path, "w") as f:
-        json.dump(config, f)
+            clamp_scroll()
+            hold_key_last_scroll_time = now
 
-class ModsListGUI():
+    if held_hat_y != 0 and now - hold_key_time >= NAV_REPEAT_DELAY:
+        if now - hold_key_last_scroll_time >= NAV_REPEAT_RATE:
+            if held_hat_y == 1:
+                selected_row = max(0, selected_row - 1)
+            elif held_hat_y == -1:
+                selected_row = min(number_of_mods - 1, selected_row + 1)
 
-    def __init__(self, mods_folder, local_save_dir=True, debug_mode=False):
-        self.debug_mode = debug_mode
+            clamp_scroll()
+            hold_key_last_scroll_time = now
 
-        # Load previous configuration or create new from defaults
-        self.config_file_path = "gzfe.json"
-        self.config = load_config(self.config_file_path)
-        try:
-            last_run = self.config["last_run"]
-        except:
-            print(f"Error loading config file: {self.config_file_path}.\n\
-            Either fix the file or delete it (it will be re-created from defauts) and run the app again.")
+    # --- Draw ---
+    screen.fill(BACKGROUND_COLOR)
 
-        # Get mods info and sort alphabetically
-        self.mods_info = load_mods_info(mods_folder, local_save_dir)
-        self.mods_names = list(self.mods_info.keys())
-        self.mods_names.sort(key=lambda y: y.lower())
+    start = scroll_offset
+    end = min(scroll_offset + VISIBLE_ROWS, number_of_mods)
 
-        # Get index of previously run mod if available
-        if last_run in self.mods_names:
-            init_index = self.mods_names.index(last_run)
+    for i in range(start, end):
+        draw_y = TOP_MARGIN + (i - scroll_offset) * ROW_HEIGHT
+
+        # --- Selected row and column highlights ---
+        if i == selected_row:
+            pygame.draw.rect(
+                screen,
+                SELECTED_ROW_HIGHLIGHT,
+                pygame.Rect(0, draw_y - 6, WIDTH, ROW_HEIGHT)
+            )
+
+        if i == selected_row:
+            col_x = COL_X[selected_col]
+            pygame.draw.rect(
+                screen,
+                SELECTED_COLUMN_HIGHLIGHT,
+                pygame.Rect(col_x - 10, draw_y - 6, 400, ROW_HEIGHT)
+    )
+
+        # Mod name column
+        mod_surf = font.render(doom_mods.mods_list[i], True, (255, 255, 255))
+        screen.blit(mod_surf, (COL_X[0], draw_y - 5))
+
+
+        # Caco rating column
+        rating = doom_mods.config['mods'][doom_mods.mods_list[i]]['rating']
+        
+        if rating == 'unrated':
+            icon = caco_unrated_img
+        elif rating == 'silver':
+            icon = caco_silver_img
+        elif rating == 'gold':
+            icon = caco_gold_img
         else:
-            init_index = 0
+            icon = caco_bad_img
 
-        # Make GUI window
-        self.window = tk.Tk()
-        self.window.title("GZDOOM mods launcher")
-        # Create label informing mods folder location
-        self.title = tk.Label(self.window, text=f"Mods folder: {mods_folder}", bg="light gray", fg="black")
-        self.title.pack()
-        # Create list box
-        self.listbox = tk.Listbox(self.window, selectmode=tk.SINGLE, 
-                                    height = 20, width = 50, bg="light gray",
-                                    exportselection=False, activestyle="none") 
-        # Create scroll bar
-        scrollbar = ttk.Scrollbar(
-            self.window,
-            orient=tk.VERTICAL,
-            command=self.listbox.yview
+        icon_rect = icon.get_rect()
+        icon_rect.center = (
+            COL_X[1] + ICON_SIZE // 2,
+            draw_y + ROW_HEIGHT // 2 - ICON_SIZE/4
         )
-        self.listbox['yscrollcommand'] = scrollbar.set
-        scrollbar.pack(side=tk.RIGHT, expand=True, fill=tk.Y)
-        # Populate list box with mods names
-        for x in self.mods_names: self.listbox.insert(tk.END, x)
-        self.listbox.pack() # put listbox on window
-
-        # Make run and exit buttons
-        tk.Button(self.window,text="Run",command=self.run_mod).pack(side=tk.LEFT)
-        tk.Button(self.window,text="Exit",command=lambda: self.window.destroy()).pack(side=tk.RIGHT)
-
-        # Select line on listbox and set focus to the window
-        self.listbox.select_set(init_index)
-        self.listbox.activate(init_index)
-        self.listbox.see(init_index)
-        self.listbox.focus_set()
-
-        # Handle key presses
-        self.window.bind("<Key>", self.handle_key_press)
-
-    def handle_key_press(self, event=None):
-        key_name = event.keysym
-        if key_name == "Up":
-            selected_index = self.listbox.curselection()[0]
-            if selected_index>0:
-                self.listbox.select_clear(selected_index)
-                self.listbox.select_set(selected_index-1)
-            return
-        if key_name == "Down":
-            selected_index = self.listbox.curselection()[0]
-            if selected_index < len(self.mods_names)-1:
-                self.listbox.select_clear(selected_index)
-                self.listbox.select_set(selected_index+1)
-            return
-        if key_name == "Escape":
-            self.window.destroy()
-            return
-        # Else, other key presses should just run the selected mod
-        self.run_mod(self)
-
-    def run_mod(self, event=None):
-        # get mod selected:
-        mod_selected = self.listbox.curselection()
-        mod_selected = self.listbox.get(mod_selected)
-        
-        # get mod launch command:
-        launch_command = self.mods_info[mod_selected]["launch_command"]
-
-        # save mod name to config file
-        self.config["last_run"] = mod_selected
-        save_config(self.config, self.config_file_path)
-        
-        # run mod
-        os.chdir("/home/deck/.var/app/org.zdoom.GZDoom/.config/gzdoom")
-        subprocess.Popen(launch_command, shell=True)
-
-        if self.debug_mode:
-            print(f"DEBUG LOG - Mod selected: {mod_selected}")
-            print(f"DEBUG LOG - Run command: {launch_command}")
-
-        # kill GUI
-        self.window.destroy()
+        screen.blit(icon, icon_rect)
 
 
-def main():
+    pygame.display.flip()
+    CLOCK.tick(60)
 
-    mods_folder = "/home/deck/games/doom/pwads"
-    local_save_dir = True   # If True save files are stored separately inside each mod folder
-    debug_mode = False      # If True prints some debug information to the console
-
-    ModsGUI = ModsListGUI(mods_folder, local_save_dir, debug_mode)
-    ModsGUI.window.mainloop()
-
-    if debug_mode:
-        print("DEBUG LOG - Exiting gzfe")
-
-
-if __name__ == "__main__":
-    main()
+save_config(config, CONFIG_PATH)
+pygame.quit()
+sys.exit()
